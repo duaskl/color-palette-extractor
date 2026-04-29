@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Color Palette Extractor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0f0f0f;
+      color: #fff;
+      font-family: 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+
+    .back-btn {
+      align-self: flex-start;
+      color: #aaa;
+      text-decoration: none;
+      font-size: 14px;
+      margin-bottom: 30px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.2s;
+    }
+    .back-btn:hover { color: #fff; }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 8px;
+      background: linear-gradient(90deg, #f77, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    p.subtitle {
+      color: #888;
+      margin-bottom: 40px;
+      font-size: 15px;
+    }
+
+    .drop-zone {
+      width: 100%;
+      max-width: 500px;
+      border: 2px dashed #333;
+      border-radius: 16px;
+      padding: 50px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.3s, background 0.3s;
+      margin-bottom: 40px;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: #a78bfa;
+      background: #1a1a2e;
+    }
+    .drop-zone p { color: #666; font-size: 15px; }
+    .drop-zone span { color: #a78bfa; font-weight: bold; }
+
+    #preview-section {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 700px;
+      gap: 30px;
+    }
+
+    #preview {
+      max-width: 100%;
+      max-height: 350px;
+      border-radius: 12px;
+      box-shadow: 0 0 40px rgba(167,139,250,0.2);
+    }
+
+    .palette-title {
+      font-size: 1.1rem;
+      color: #aaa;
+      align-self: center;
+    }
+
+    #palette {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .color-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .color-swatch {
+      width: 80px;
+      height: 80px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      transition: transform 0.2s;
+    }
+    .color-swatch:hover { transform: scale(1.1); }
+
+    .color-hex {
+      font-size: 13px;
+      color: #aaa;
+      font-family: monospace;
+    }
+
+    .copied-toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #a78bfa;
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 30px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    .copied-toast.show { opacity: 1; }
+
+    canvas { display: none; }
+  </style>
+</head>
+<body>
+
+  <a class="back-btn" href="/">← Späť na portál</a>
+
+  <h1>🎨 Color Palette Extractor</h1>
+  <p class="subtitle">Nahraj fotku a získaj jej farebnú paletu</p>
+
+  <div class="drop-zone" id="dropZone">
+    <p>Pretiahni sem obrázok alebo <span>klikni pre výber</span></p>
+    <input type="file" id="fileInput" accept="image/*" style="display:none"/>
+  </div>
+
+  <div id="preview-section">
+    <img id="preview" alt="preview"/>
+    <p class="palette-title">Farebná paleta — klikni na farbu pre skopírovanie HEX kódu</p>
+    <div id="palette"></div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+  <div class="copied-toast" id="toast">✓ Skopírované!</div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('preview');
+    const previewSection = document.getElementById('preview-section');
+    const palette = document.getElementById('palette');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const toast = document.getElementById('toast');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+    dropZone.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      handleFile(e.dataTransfer.files[0]);
+    });
+
+    function handleFile(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        preview.src = e.target.result;
+        preview.onload = () => {
+          previewSection.style.display = 'flex';
+          extractPalette(preview);
+        };
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function extractPalette(img) {
+      canvas.width = 100;
+      canvas.height = 100;
+      ctx.drawImage(img, 0, 0, 100, 100);
+      const data = ctx.getImageData(0, 0, 100, 100).data;
+
+      const colorMap = {};
+      for (let i = 0; i < data.length; i += 4) {
+        const r = Math.round(data[i] / 32) * 32;
+        const g = Math.round(data[i+1] / 32) * 32;
+        const b = Math.round(data[i+2] / 32) * 32;
+        const key = `${r},${g},${b}`;
+        colorMap[key] = (colorMap[key] || 0) + 1;
+      }
+
+      const sorted = Object.entries(colorMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8);
+
+      palette.innerHTML = '';
+      sorted.forEach(([key]) => {
+        const [r, g, b] = key.split(',');
+        const hex = '#' + [r, g, b].map(v => parseInt(v).toString(16).padStart(2, '0')).join('');
+        const card = document.createElement('div');
+        card.className = 'color-card';
+        card.innerHTML = `
+          <div class="color-swatch" style="background:${hex}"></div>
+          <span class="color-hex">${hex}</span>
+        `;
+        card.addEventListener('click', () => copyHex(hex));
+        palette.appendChild(card);
+      });
+    }
+
+    function copyHex(hex) {
+      navigator.clipboard.writeText(hex);
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+  </script>
+
+</body>
+</html>
